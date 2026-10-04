@@ -1,0 +1,47 @@
+{
+  "activeModel": "fallback_chain",
+  "providers": [
+    {
+      "id": "prov_groq_primary",
+      "name": "Groq GPT-OSS 120B (Principal Ultra-rápido)",
+      "provider": "GROQ",
+      "model": "openai/gpt-oss-120b",
+      "temperature": 0.5,
+      "apiKey": "YOUR_GROQ_API_KEY",
+      "priority": 1,
+      "enabled": true,
+      "status": "LISTO",
+      "errorCount": 0,
+      "lastError": null,
+      "lastUsed": null
+    },
+    {
+      "id": "prov_groq_secondary",
+      "name": "Groq Qwen 3.6 27B (Respaldo Rápido)",
+      "provider": "GROQ",
+      "model": "qwen/qwen3.6-27b",
+      "temperature": 0.5,
+      "apiKey": "YOUR_GROQ_API_KEY",
+      "priority": 2,
+      "enabled": true,
+      "status": "LISTO",
+      "errorCount": 0,
+      "lastError": null,
+      "lastUsed": null
+    },
+    {
+      "id": "prov_github_secondary",
+      "name": "GitHub GPT-4o-mini (Respaldo)",
+      "provider": "GITHUB",
+      "model": "gpt-4o-mini",
+      "temperature": 0.5,
+      "apiKey": "YOUR_GITHUB_TOKEN",
+      "priority": 3,
+      "enabled": true,
+      "status": "LISTO",
+      "errorCount": 0,
+      "lastError": null,
+      "lastUsed": null
+    }
+  ]
+}

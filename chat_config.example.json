@@ -1,0 +1,7 @@
+{
+  "botToken": "YOUR_TELEGRAM_BOT_TOKEN_HERE",
+  "chatId": "YOUR_TELEGRAM_CHAT_ID_HERE",
+  "enabled": true,
+  "welcomeMessage": "¡Hola! Bienvenido al canal de atención de ALACOR S.A.S.",
+  "fallbackMessage": "Un asesor comercial se comunicará contigo a la brevedad."
+}

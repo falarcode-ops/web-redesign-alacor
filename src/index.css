@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@theme {
+  --color-alacor-amber: #f2b300;
+  --color-alacor-dark: #0a1118;
+  --color-alacor-black: #05080c;
+  --color-alacor-card: #0b1320;
+  --color-alacor-dialog: #070b12;
+}
+
+body {
+  background-color: var(--color-alacor-black);
+  color: #f3f4f6;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  max-width: 100%;
+  min-width: 100%;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+*, ::before, ::after {
+  box-sizing: border-box;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-12px); }
+}
+
+.animate-float {
+  animation: float 5s ease-in-out infinite;
+}
+
+.pedestal-glow {
+  background: radial-gradient(circle, rgba(242,179,0,0.15) 0%, rgba(242,179,0,0) 70%);
+}

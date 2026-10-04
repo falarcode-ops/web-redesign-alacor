@@ -1,0 +1,67 @@
+# ==============================================================================
+# ALACOR S.A.S. - DEVSECOPS AUDITED GITIGNORE
+# ==============================================================================
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Production Build Artifacts
+dist/
+dist-ssr/
+dist_temp/
+dist.tar.gz
+*.zip
+*.tar.gz
+
+# Environment Variables & Live Credentials (ZERO-LEAK SHIELD)
+.env
+.env.*
+!.env.example
+ai-config.json
+!ai-config.example.json
+chat_config.json
+!chat_config.example.json
+subscribers.json
+unmatched_queries.json
+marketing_assets.json
+catalogo.json
+catalogo_rag.json
+
+# Local Runtime Data & Temporary Files
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+scratch/
+extracted_section.txt
+formatted_bundle.js
+matches.txt
+extract_bundle.cjs
+patch_quota.cjs
+resolve_query.cjs
+*.docx
+*.xlsx
+
+# Backups & Historical Archives
+backup_*/
+backup_session_*/
+
+# IDE, OS & Agent Directories
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.agent/
+.gemini/
+.cursor/
+INSTRUCCIONES_AGENTE.md

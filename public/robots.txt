@@ -1,0 +1,13 @@
+# robots.txt para https://alacor.com.co
+User-agent: *
+Allow: /
+
+# Directivas para rastreadores mayores
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+# Sitemap oficial
+Sitemap: https://alacor.com.co/sitemap.xml
