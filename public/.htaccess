@@ -1,24 +1,44 @@
+# ==============================================================================
+# ALACOR S.A.S. — NATIVE HOSTINGER WAF, ZERO-PHP & PERFORMANCE SHIELD (.htaccess)
+# ==============================================================================
+
+# 1. Deshabilitar listado de directorios y ejecución CGI
+Options -Indexes -ExecCGI
+
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
-  
-  # Forzar HTTPS
+
+  # 2. Forzar HTTPS estricto
   RewriteCond %{HTTPS} off
   RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
-  # Enrutamiento SPA: Si no es archivo o directorio físico, servir index.html
+  # 3. ESCUDO ZERO-PHP & SCRIPTS: Bloquear ejecución de cualquier intérprete de servidor
+  # Aunque Hostinger tenga PHP instalado, esta regla devuelve 403 Forbidden inmediato
+  RewriteRule \.(php[0-9]?|phtml|phar|cgi|pl|py|sh|asp|aspx|jsp|env|sql|bak|old|ini|log)$ - [F,L,NC]
+
+  # 4. Bloquear acceso a archivos y carpetas ocultas (excepto .well-known para SSL de Hostinger)
+  RewriteCond %{REQUEST_URI} !^/\.well-known/ [NC]
+  RewriteRule (^\.|/\.) - [F,L]
+
+  # 5. WAF NATIVO: Bloqueo de Escáneres de Vulnerabilidades, Bots de Ataque y Scrapers Agresivos
+  RewriteCond %{HTTP_USER_AGENT} (sqlmap|nikto|nuclei|masscan|nmap|zgrab|wpscan|acunetix|nessus|dirbuster|gobuster|ffuf|wfuzz|havij|libwww-perl|python-urllib|scrapy) [NC,OR]
+  RewriteCond %{QUERY_STRING} (union.*select|concat.*\(|base64_(en|de)code|(<|%3C).*script.*(>|%3E)|GLOBALS(=|\[|\%[0-9A-Z]{0,2})|_REQUEST(=|\[|\%[0-9A-Z]{0,2})|\.\./\.\./|etc/passwd|boot\.ini) [NC]
+  RewriteRule .* - [F,L]
+
+  # 6. Enrutamiento SPA: Si no es archivo o directorio físico, servir index.html
   RewriteRule ^index\.html$ - [L]
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule . /index.html [L]
 </IfModule>
 
-# Habilitar compresión GZIP para máxima velocidad y Core Web Vitals
+# 7. Compresión GZIP / Deflate para máxima velocidad y Core Web Vitals
 <IfModule mod_deflate.c>
   AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css application/javascript application/json image/svg+xml
 </IfModule>
 
-# Políticas de Caché Optimizadas
+# 8. Políticas de Caché Optimizadas
 <IfModule mod_expires.c>
   ExpiresActive On
 
@@ -35,16 +55,24 @@
   ExpiresByType video/mp4 "access plus 1 month"
 </IfModule>
 
+# 9. Cabeceras de Seguridad Avanzadas (Hardening Nativo en Hostinger)
 <IfModule mod_headers.c>
-  # Prevenir MIME sniffing y habilitar protección básica
-  Header set X-Content-Type-Options "nosniff"
-  Header set X-Frame-Options "SAMEORIGIN"
-  
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set X-XSS-Protection "1; mode=block"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=()"
+  Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+
+  # Ocultar firma de versión de PHP o servidor si existiera
+  Header unset X-Powered-By
+  Header always unset X-Powered-By
+
   # Cache-Control para assets estáticos con hash
   <FilesMatch "\.(js|css|webp|png|jpg|jpeg|svg|mp4)$">
     Header set Cache-Control "public, max-age=2592000, immutable"
   </FilesMatch>
-  
+
   # Cache-Control para index.html
   <FilesMatch "^index\.html$">
     Header set Cache-Control "no-cache, no-store, must-revalidate"
