@@ -113,6 +113,18 @@ function serveStaticFile(res, filePath) {
 const clientRateLimits = {};
 const bannedClients = {}; // ip -> { bannedUntil: timestamp, reason: string }
 
+function getClientIp(req) {
+  const cfIp = req.headers['cf-connecting-ip'];
+  if (cfIp) return String(cfIp).trim();
+  const xForwardedFor = req.headers['x-forwarded-for'];
+  if (xForwardedFor) {
+    const list = String(xForwardedFor).split(',');
+    return list[0].trim();
+  }
+  const rawIp = req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : '127.0.0.1';
+  return String(rawIp).replace(/^::ffff:/, '');
+}
+
 function isClientBanned(clientIp) {
   if (!bannedClients[clientIp]) return false;
   if (Date.now() > bannedClients[clientIp].bannedUntil) {
@@ -135,20 +147,21 @@ function banClient(clientIp, reason = 'abuse', durationMs = 15 * 60 * 1000) {
   console.warn(`[BAN ENFORCED] IP ${clientIp} quarantined for ${durationMs / 60000} mins due to ${reason}.`);
 }
 
-function checkClientRateLimit(identifier, maxRequests = 25, windowMs = 30000) {
+function checkClientRateLimit(identifier, maxRequests = 15, windowMs = 60000) {
   const now = Date.now();
   if (!clientRateLimits[identifier] || now > clientRateLimits[identifier].resetAt) {
     clientRateLimits[identifier] = { count: 1, resetAt: now + windowMs };
-    return { allowed: true };
+    return { allowed: true, remaining: maxRequests - 1 };
   }
   clientRateLimits[identifier].count += 1;
   if (clientRateLimits[identifier].count > maxRequests) {
     return {
       allowed: false,
-      retryAfterSec: Math.ceil((clientRateLimits[identifier].resetAt - now) / 1000)
+      retryAfterSec: Math.max(1, Math.ceil((clientRateLimits[identifier].resetAt - now) / 1000)),
+      remaining: 0
     };
   }
-  return { allowed: true };
+  return { allowed: true, remaining: maxRequests - clientRateLimits[identifier].count };
 }
 
 // Prune expired rate limit entries every 5 minutes
@@ -1315,7 +1328,17 @@ const server = http.createServer(async (req, res) => {
   // 1. SSE Stream: GET /api/chat/stream?sessionId=...
   if (pathname === '/api/chat/stream' && req.method === 'GET') {
     const sessionId = parsedUrl.searchParams.get('sessionId');
-    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || sessionId;
+    const clientIp = getClientIp(req);
+
+    const streamRateCheck = checkClientRateLimit(`stream_${clientIp}`, 30, 60000);
+    if (!streamRateCheck.allowed) {
+      res.setHeader('Retry-After', streamRateCheck.retryAfterSec);
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        error: 'Demasiadas conexiones simultáneas. Por favor espera unos momentos.',
+        retryAfterSec: streamRateCheck.retryAfterSec
+      }));
+    }
 
     if (isClientBanned(clientIp)) {
       const remainingMin = Math.max(1, Math.ceil((bannedClients[clientIp].bannedUntil - Date.now()) / 60000));
@@ -1391,14 +1414,18 @@ const server = http.createServer(async (req, res) => {
 
       console.log(`\n[LIVE CHAT] [${sessionId}] ${userName || 'Visitor'}: ${text}`);
 
-      // Rate Limit Check per Session / IP
-      const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || sessionId;
-      const rateCheck = checkClientRateLimit(clientIp);
+      // Rate Limit Check per Session / IP (15 requests per 60 seconds)
+      const clientIp = getClientIp(req);
+      const rateCheck = checkClientRateLimit(clientIp, 15, 60000);
       if (!rateCheck.allowed) {
         console.warn(`[RATE LIMIT] Rate limit exceeded for ${clientIp} (session: ${sessionId})`);
+        res.setHeader('Retry-After', rateCheck.retryAfterSec);
+        res.setHeader('X-RateLimit-Limit', '15');
+        res.setHeader('X-RateLimit-Remaining', '0');
         res.writeHead(429, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({
-          error: `Has alcanzado el límite de mensajes. Por favor espera ${rateCheck.retryAfterSec} segundos antes de enviar otro mensaje.`
+          error: `Has alcanzado el límite de mensajes permitidos. Por favor espera ${rateCheck.retryAfterSec} segundos antes de enviar otro mensaje.`,
+          retryAfterSec: rateCheck.retryAfterSec
         }));
       }
 
@@ -2086,6 +2113,17 @@ ${catalogContext}
   // 3. Silent Handover/Transfer: POST /api/chat/transfer
   if (pathname === '/api/chat/transfer' && req.method === 'POST') {
     try {
+      const clientIp = getClientIp(req);
+      const rateCheck = checkClientRateLimit(`transfer_${clientIp}`, 5, 60000);
+      if (!rateCheck.allowed) {
+        res.setHeader('Retry-After', rateCheck.retryAfterSec);
+        res.writeHead(429, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          error: 'Demasiadas solicitudes de transferencia. Por favor espera unos momentos.',
+          retryAfterSec: rateCheck.retryAfterSec
+        }));
+      }
+
       const body = await parseJsonBody(req);
       const { sessionId, userName, history } = body;
 
@@ -2467,55 +2505,62 @@ ${catalogContext}
 
   // ── Lead capture: receive and forward to Telegram ─────────────────────────
   if (req.method === 'POST' && pathname === '/api/chat/lead') {
-    let body = '';
-    req.on('data', c => { body += c; });
-    req.on('end', () => {
-      try {
-        const { lead, productContext, summary, sessionId, userName } = JSON.parse(body || '{}');
-        if (!lead) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ error: 'lead required' }));
-        }
-
-        logToCrm('lead_captured', sessionId || 'anon', { lead, productContext, summary });
-
-        // Send to all enabled Telegram accounts
-        const activeAccounts = (config.accounts || []).filter(a => a.enabled && a.chatId);
-        const msg = summary || (
-          `🎯 NUEVO LEAD — ALACOR S.A.S.\n` +
-          `👤 ${lead.name || 'Sin nombre'}\n` +
-          `🏢 ${lead.company || 'Persona natural'}\n` +
-          `📱 ${lead.contact || 'Sin contacto'}\n` +
-          `📊 ${lead.customerType || '?'}\n` +
-          `🛋️ ${productContext || 'Precios / cotización'}\n` +
-          `🔗 Sesión: ${sessionId || 'anon'}`
-        );
-
-        if (activeAccounts.length > 0 && config.botToken) {
-          activeAccounts.forEach(acc => {
-            makeTelegramRequest('sendMessage', {
-              chat_id: acc.chatId,
-              text: msg,
-              parse_mode: 'HTML'
-            }).catch(() => {});
-          });
-        }
-
-        // Ingest transfer/lead to Coralis CRM (Port 8008)
-        sendTransferToCoralisCrm(sessionId, 'Captura de Lead / Cotización', {
-          name: lead.name,
-          contact: lead.contact,
-          phone: lead.contact
-        });
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true }));
-      } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
+    try {
+      const clientIp = getClientIp(req);
+      const rateCheck = checkClientRateLimit(`lead_${clientIp}`, 5, 60000);
+      if (!rateCheck.allowed) {
+        res.setHeader('Retry-After', rateCheck.retryAfterSec);
+        res.writeHead(429, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          error: 'Demasiadas solicitudes de registro. Por favor espera unos momentos.',
+          retryAfterSec: rateCheck.retryAfterSec
+        }));
       }
-    });
-    return;
+
+      const body = await parseJsonBody(req);
+      const { lead, productContext, summary, sessionId, userName } = body || {};
+      if (!lead) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'lead required' }));
+      }
+
+      logToCrm('lead_captured', sessionId || 'anon', { lead, productContext, summary });
+
+      // Send to all enabled Telegram accounts
+      const activeAccounts = (config.accounts || []).filter(a => a.enabled && a.chatId);
+      const msg = summary || (
+        `🎯 NUEVO LEAD — ALACOR S.A.S.\n` +
+        `👤 ${lead.name || 'Sin nombre'}\n` +
+        `🏢 ${lead.company || 'Persona natural'}\n` +
+        `📱 ${lead.contact || 'Sin contacto'}\n` +
+        `📊 ${lead.customerType || '?'}\n` +
+        `🛋️ ${productContext || 'Precios / cotización'}\n` +
+        `🔗 Sesión: ${sessionId || 'anon'}`
+      );
+
+      if (activeAccounts.length > 0 && config.botToken) {
+        activeAccounts.forEach(acc => {
+          makeTelegramRequest('sendMessage', {
+            chat_id: acc.chatId,
+            text: msg,
+            parse_mode: 'HTML'
+          }).catch(() => {});
+        });
+      }
+
+      // Ingest transfer/lead to Coralis CRM (Port 8008)
+      sendTransferToCoralisCrm(sessionId, 'Captura de Lead / Cotización', {
+        name: lead.name,
+        contact: lead.contact,
+        phone: lead.contact
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: e.message }));
+    }
   }
 
   // ── ML: Get all approved training examples (admin) ────────────────────────
@@ -2583,6 +2628,17 @@ ${catalogContext}
   // ── Full Context Human Handover Endpoint: POST /api/chat/transfer-with-context ────
   if (pathname === '/api/chat/transfer-with-context' && req.method === 'POST') {
     try {
+      const clientIp = getClientIp(req);
+      const rateCheck = checkClientRateLimit(`transfer_ctx_${clientIp}`, 5, 60000);
+      if (!rateCheck.allowed) {
+        res.setHeader('Retry-After', rateCheck.retryAfterSec);
+        res.writeHead(429, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          error: 'Demasiadas solicitudes de transferencia. Por favor espera unos momentos.',
+          retryAfterSec: rateCheck.retryAfterSec
+        }));
+      }
+
       const body = await parseJsonBody(req);
       const { sessionId, leadData, history, notes } = body;
 
@@ -2693,57 +2749,63 @@ ${catalogContext}
 
   // ── Newsletter & Habeas Data Endpoints (Ley 1581 de 2012) ────────────────
   if (pathname === '/api/newsletter/subscribe' && req.method === 'POST') {
-    let body = '';
-    req.on('data', c => { body += c; });
-    req.on('end', () => {
-      try {
-        const { email, acceptedPolicy } = JSON.parse(body || '{}');
-        const cleanEmail = String(email || '').trim().toLowerCase();
-
-        if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ error: 'Dirección de correo electrónico inválida.' }));
-        }
-
-        if (!acceptedPolicy) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ error: 'Debe aceptar la Política de Tratamiento de Datos Personales (Ley 1581).' }));
-        }
-
-        const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-        const existingIdx = subscribers.findIndex(s => s.email.toLowerCase() === cleanEmail);
-
-        if (existingIdx >= 0) {
-          subscribers[existingIdx].status = 'ACTIVO';
-          subscribers[existingIdx].updatedAt = new Date().toISOString();
-          subscribers[existingIdx].acceptedPolicy = true;
-          subscribers[existingIdx].policyVersion = '1.0';
-        } else {
-          subscribers.push({
-            id: `sub_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-            email: cleanEmail,
-            status: 'ACTIVO',
-            subscribedAt: new Date().toISOString(),
-            acceptedPolicy: true,
-            policyVersion: '1.0',
-            ipAddress: String(clientIp).split(',')[0].trim()
-          });
-        }
-
-        saveSubscribers();
-        console.log(`[NEWSLETTER] New subscriber registered: ${cleanEmail}`);
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
+    try {
+      const clientIp = getClientIp(req);
+      const rateCheck = checkClientRateLimit(`sub_${clientIp}`, 5, 60000);
+      if (!rateCheck.allowed) {
+        res.setHeader('Retry-After', rateCheck.retryAfterSec);
+        res.writeHead(429, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({
-          success: true,
-          message: '¡Gracias por suscribirte! Recibirás nuestras novedades técnicas y de seguridad.'
+          error: 'Demasiadas solicitudes de suscripción. Por favor espera unos momentos.',
+          retryAfterSec: rateCheck.retryAfterSec
         }));
-      } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ error: e.message }));
       }
-    });
-    return;
+
+      const body = await parseJsonBody(req);
+      const { email, acceptedPolicy } = body || {};
+      const cleanEmail = String(email || '').trim().toLowerCase();
+
+      if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Dirección de correo electrónico inválida.' }));
+      }
+
+      if (!acceptedPolicy) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Debe aceptar la Política de Tratamiento de Datos Personales (Ley 1581).' }));
+      }
+
+      const existingIdx = subscribers.findIndex(s => s.email.toLowerCase() === cleanEmail);
+
+      if (existingIdx >= 0) {
+        subscribers[existingIdx].status = 'ACTIVO';
+        subscribers[existingIdx].updatedAt = new Date().toISOString();
+        subscribers[existingIdx].acceptedPolicy = true;
+        subscribers[existingIdx].policyVersion = '1.0';
+      } else {
+        subscribers.push({
+          id: `sub_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          email: cleanEmail,
+          status: 'ACTIVO',
+          subscribedAt: new Date().toISOString(),
+          acceptedPolicy: true,
+          policyVersion: '1.0',
+          ipAddress: clientIp
+        });
+      }
+
+      saveSubscribers();
+      console.log(`[NEWSLETTER] New subscriber registered: ${cleanEmail}`);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        success: true,
+        message: '¡Gracias por suscribirte! Recibirás nuestras novedades técnicas y de seguridad.'
+      }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: e.message }));
+    }
   }
 
   if (pathname === '/api/newsletter/manage-privacy' && req.method === 'POST') {

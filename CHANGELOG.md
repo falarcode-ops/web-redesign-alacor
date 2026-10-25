@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.8.0] - 2026-10-25
+### Security & DevSecOps Hardening
+- **Mitigación Anti-DoS & Rate Limiting en Gateway (`chat-server.cjs`):**
+  - Implementado limitador de tasa por ventana deslizante en memoria para proteger los endpoints contra ataques automatizados de scraping y saturación de inferencia LLM.
+  - Límite de 15 peticiones/minuto por IP para `/api/chat/send` con respuesta HTTP `429 Too Many Requests`, cabeceras `Retry-After`, `X-RateLimit-Limit` y `X-RateLimit-Remaining`.
+  - Protección de endpoints de captura (`/api/chat/lead`, `/api/chat/transfer`, `/api/newsletter/subscribe`) con límites estrictos de 5 peticiones/minuto para blindar Coralis CRM y Telegram contra spam automatizado.
+  - Soporte de resolución de IP de cliente compatible con Cloudflare (`CF-Connecting-IP`, `X-Forwarded-For`).
+  - Límite de carga útil (payload limit de 64 KB) con destrucción de socket en `parseJsonBody` para prevenir ataques de desbordamiento de búfer.
+- **Gobernanza Automatizada de Seguridad en GitHub:**
+  - Configurado `.github/dependabot.yml` con escaneo semanal de vulnerabilidades en dependencias npm.
+  - Activadas alertas automáticas de vulnerabilidad (*Dependabot Vulnerability Alerts*) y resolución automática de parches de seguridad (*Automated Security Fixes*) en el repositorio `falarcode-ops/web-redesign-alacor`.
+
+
 ## [1.7.0] - 2026-08-30
 ### Added
 - **Módulo FAQ Industrial de Alto Valor & Retención de Tráfico:**
