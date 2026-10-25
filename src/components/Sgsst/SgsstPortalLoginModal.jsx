@@ -17,7 +17,7 @@ export const SgsstPortalLoginModal = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
-      <div className="relative w-full max-w-md bg-[#0a1118] border border-white/10 rounded-2xl p-6 sm:p-8 shadow-2xl text-left">
+      <div className="relative w-full max-w-md bg-alacor-dark border border-white/10 rounded-2xl p-6 sm:p-8 shadow-2xl text-left">
         <button
           onClick={onClose}
           className="absolute top-4 right-4 text-gray-400 hover:text-white text-xl font-bold bg-transparent border-none cursor-pointer"

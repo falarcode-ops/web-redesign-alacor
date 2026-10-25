@@ -349,7 +349,7 @@ export const SgsstSection = ({ onOpenPortalModal }) => {
   }
 
   return (
-    <section id="sgsst-section" className="relative py-24 bg-[#0a1118] border-t border-white/5 scroll-mt-20">
+    <section id="sgsst-section" className="relative py-24 bg-alacor-dark border-t border-white/5 scroll-mt-20">
       <div className="container mx-auto px-6">
         <div className="max-w-4xl mx-auto text-center mb-16">
           <span className="text-xs font-bold tracking-widest text-alacor-amber uppercase mb-3 block">
@@ -516,7 +516,7 @@ export const SgsstSection = ({ onOpenPortalModal }) => {
                   <div>
                     <label className="block text-xs font-semibold text-gray-300 uppercase mb-1.5">Clase de Riesgo ARL *</label>
                     <select
-                      value={formData.riskLevel} onFocus={recordHumanInteraction} onChange={(e) => handleFieldChange("riskLevel", parseInt(e.target.value))} className="w-full bg-[#0a1118] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-alacor-amber"
+                      value={formData.riskLevel} onFocus={recordHumanInteraction} onChange={(e) => handleFieldChange("riskLevel", parseInt(e.target.value))} className="w-full bg-alacor-dark border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-alacor-amber"
                     >
                       <option value={1}>Riesgo I - Mínimo (Oficinas, Comercio)</option>
                       <option value={2}>Riesgo II - Bajo (Almacenes, Manufactura Ligera)</option>
@@ -564,7 +564,7 @@ export const SgsstSection = ({ onOpenPortalModal }) => {
                   <div>
                     <label className="block text-xs font-semibold text-gray-300 uppercase mb-1.5">Modalidad de Pago Deseada *</label>
                     <select
-                      value={formData.preferredPaymentMode} onFocus={recordHumanInteraction} onChange={(e) => handleFieldChange("preferredPaymentMode", e.target.value)} className="w-full bg-[#0a1118] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-alacor-amber"
+                      value={formData.preferredPaymentMode} onFocus={recordHumanInteraction} onChange={(e) => handleFieldChange("preferredPaymentMode", e.target.value)} className="w-full bg-alacor-dark border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-alacor-amber"
                     >
                       <option value="MENSUAL">Pago Mensual</option>
                       <option value="SEMESTRAL">Pago Semestral</option>
